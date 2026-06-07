@@ -1,0 +1,30 @@
+{
+  "Listeners": [
+    "UDP:9",
+    "HTTP:8009"
+  ],
+  "LogLevel": "INFO",
+  "BroadcastIP": "192.168.255.255",
+  "HTTPOutput": "XML",
+  "ExitIfAnyPortIsAlreadyUsed": false,
+  "Auth": {
+    "Login": "",
+    "Password": ""
+  },
+  "AvoidDualUDPSending": {
+    "Active": false,
+    "Delay": "100ms"
+  },
+  "DelayBeforeCommands": {
+    "Active": true,
+    "Delay": "500ms"
+  },
+  "Commands": [
+    {
+      "Operation": "sleep",
+      "Type": "external",
+      "Default": true,
+      "Command": "systemctl suspend"
+    }
+  ]
+}

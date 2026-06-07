@@ -1,0 +1,4 @@
+sol
+*.o
+*.log
+sol.json
