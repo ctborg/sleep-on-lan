@@ -102,6 +102,7 @@ typedef uintptr_t thread_t;
 typedef SOCKET socket_t;
 typedef int socket_len_t;
 typedef unsigned (__stdcall *thread_fn_t)(void *);
+#define INVALID_SOCKET_T INVALID_SOCKET
 #define THREAD_RET unsigned __stdcall
 #define THREAD_RETURN 0
 #define close_socket closesocket
@@ -110,6 +111,7 @@ typedef pthread_t thread_t;
 typedef int socket_t;
 typedef socklen_t socket_len_t;
 typedef void *(*thread_fn_t)(void *);
+#define INVALID_SOCKET_T (-1)
 #define THREAD_RET void *
 #define THREAD_RETURN NULL
 #define close_socket close
@@ -762,8 +764,8 @@ static bool packet_matches_local_mac(const uint8_t mac[6], char *matched, size_t
 
 static socket_t udp_socket_bind(int port) {
     socket_t fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd == (socket_t)-1) {
-        return (socket_t)-1;
+    if (fd == INVALID_SOCKET_T) {
+        return INVALID_SOCKET_T;
     }
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
@@ -774,7 +776,7 @@ static socket_t udp_socket_bind(int port) {
     addr.sin_port = htons((uint16_t)port);
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close_socket(fd);
-        return -1;
+        return INVALID_SOCKET_T;
     }
     return fd;
 }
@@ -1152,8 +1154,8 @@ static void handle_http_client(Config *cfg, socket_t client) {
 
 static socket_t tcp_socket_bind(int port) {
     socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd == (socket_t)-1) {
-        return (socket_t)-1;
+    if (fd == INVALID_SOCKET_T) {
+        return INVALID_SOCKET_T;
     }
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
@@ -1164,11 +1166,11 @@ static socket_t tcp_socket_bind(int port) {
     addr.sin_port = htons((uint16_t)port);
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close_socket(fd);
-        return (socket_t)-1;
+        return INVALID_SOCKET_T;
     }
     if (listen(fd, 16) < 0) {
         close_socket(fd);
-        return (socket_t)-1;
+        return INVALID_SOCKET_T;
     }
     return fd;
 }
@@ -1352,7 +1354,7 @@ int main(int argc, char **argv) {
         }
         args->config = &cfg;
         args->port = cfg.listeners[i].port;
-        thread_t thread;
+        thread_t thread = 0;
         bool ok = false;
         if (strcmp(cfg.listeners[i].type, "UDP") == 0) {
             ok = start_thread(&thread, udp_listener_thread, args);
