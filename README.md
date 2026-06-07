@@ -1,4 +1,4 @@
-# sleep-on-lap
+# sleep-on-lan
 
 A dependency-free C implementation inspired by [SR-G/sleep-on-lan](https://github.com/SR-G/sleep-on-lan).
 
