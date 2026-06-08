@@ -46,6 +46,7 @@
 #define MAX_MACS 64
 #define MAX_STR 256
 #define HTTP_BUF 4096
+#define MAGIC_PACKET_SIZE 102
 
 typedef struct {
     char type[8];
@@ -197,6 +198,12 @@ static long parse_duration_ms(const char *s, long fallback) {
 static void mac_to_string(const uint8_t mac[6], char out[18]) {
     snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static void reverse_mac_bytes(const uint8_t in[6], uint8_t out[6]) {
+    for (int i = 0; i < 6; i++) {
+        out[i] = in[5 - i];
+    }
 }
 
 static void reverse_mac_string(const char *mac, char out[18]) {
@@ -737,8 +744,8 @@ static void execute_command_async(Command *cmd, long delay_ms) {
 #endif
 }
 
-static bool extract_reversed_mac_from_packet(const uint8_t *buf, size_t len, uint8_t out[6]) {
-    if (len < 12) {
+static bool extract_magic_packet_mac(const uint8_t *buf, size_t len, uint8_t out[6]) {
+    if (len != MAGIC_PACKET_SIZE) {
         return false;
     }
     for (int i = 0; i < 6; i++) {
@@ -747,14 +754,21 @@ static bool extract_reversed_mac_from_packet(const uint8_t *buf, size_t len, uin
         }
     }
     for (int i = 0; i < 6; i++) {
-        out[i] = buf[11 - i];
+        out[i] = buf[6 + i];
+    }
+    for (int block = 1; block < 16; block++) {
+        if (memcmp(buf + 6 + block * 6, out, 6) != 0) {
+            return false;
+        }
     }
     return true;
 }
 
-static bool packet_matches_local_mac(const uint8_t mac[6], char *matched, size_t matched_size) {
+static bool sleep_packet_matches_local_mac(const uint8_t packet_mac[6], char *matched, size_t matched_size) {
+    uint8_t local_order_mac[6];
+    reverse_mac_bytes(packet_mac, local_order_mac);
     for (int i = 0; i < g_local_mac_count; i++) {
-        if (memcmp(mac, g_local_macs[i].bytes, 6) == 0) {
+        if (memcmp(local_order_mac, g_local_macs[i].bytes, 6) == 0) {
             snprintf(matched, matched_size, "%s", g_local_macs[i].text);
             return true;
         }
@@ -811,14 +825,14 @@ static THREAD_RET udp_listener_thread(void *arg) {
         if (n <= 0) {
             continue;
         }
-        uint8_t mac[6];
-        if (!extract_reversed_mac_from_packet(buf, (size_t)n, mac)) {
+        uint8_t packet_mac[6];
+        if (!extract_magic_packet_mac(buf, (size_t)n, packet_mac)) {
             continue;
         }
         char extracted[18];
-        mac_to_string(mac, extracted);
+        mac_to_string(packet_mac, extracted);
         char matched[18];
-        if (packet_matches_local_mac(mac, matched, sizeof(matched))) {
+        if (sleep_packet_matches_local_mac(packet_mac, matched, sizeof(matched))) {
             log_msg("INFO", "Received reversed magic packet for local MAC %s", matched);
             if (cfg->avoid_dual_udp.active) {
                 if (g_udp_action_pending) {
