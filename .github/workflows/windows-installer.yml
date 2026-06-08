@@ -1,0 +1,39 @@
+name: Windows Installer
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build sol.exe with MSVC
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VSINSTALL=%%i
+          call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+          call build-msvc.bat
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        shell: cmd
+        run: '"%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" installer\windows\SleepOnLan.iss'
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepOnLanSetup
+          path: installer/windows/Output/SleepOnLanSetup.exe
+          if-no-files-found: error

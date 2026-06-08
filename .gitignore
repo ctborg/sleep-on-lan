@@ -1,6 +1,9 @@
 sol
+sol.exe
+SleepOnLanSetup.exe
 *.o
 *.log
 sol.json
 
 plans/
+installer/windows/Output/

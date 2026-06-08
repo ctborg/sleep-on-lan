@@ -44,6 +44,7 @@
 #define SOL_VERSION "0.1.0"
 #define SOL_SERVICE_NAME "SleepOnLan"
 #define SOL_SERVICE_DISPLAY_NAME "Sleep on LAN"
+#define SOL_SERVICE_DESCRIPTION "Listens for inverse Wake-on-LAN packets and puts this computer to sleep."
 #define MAX_LISTENERS 16
 #define MAX_COMMANDS 32
 #define MAX_MACS 64
@@ -1634,6 +1635,9 @@ static int windows_install_service(void) {
     failure_actions.cActions = 1;
     failure_actions.lpsaActions = actions;
     ChangeServiceConfig2A(service, SERVICE_CONFIG_FAILURE_ACTIONS, &failure_actions);
+    SERVICE_DESCRIPTIONA description;
+    description.lpDescription = (LPSTR)SOL_SERVICE_DESCRIPTION;
+    ChangeServiceConfig2A(service, SERVICE_CONFIG_DESCRIPTION, &description);
     CloseServiceHandle(service);
     CloseServiceHandle(scm);
     return 0;
