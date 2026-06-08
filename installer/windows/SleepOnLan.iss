@@ -29,6 +29,7 @@ RestartApplications=no
 
 [Files]
 Source: "..\..\sol.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\scripts\windows\uninstall.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{commonappdata}\SleepOnLan"
@@ -37,6 +38,9 @@ Name: "{commonappdata}\SleepOnLan\logs"
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Services\EventLog\Application\SleepOnLan"; ValueType: string; ValueName: "EventMessageFile"; ValueData: "{sys}\EventCreate.exe"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Services\EventLog\Application\SleepOnLan"; ValueType: dword; ValueName: "TypesSupported"; ValueData: "7"; Flags: uninsdeletekey
+
+[Icons]
+Name: "{group}\Uninstall Sleep on LAN"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "install"; StatusMsg: "Installing Windows Service..."; Flags: runhidden waituntilterminated

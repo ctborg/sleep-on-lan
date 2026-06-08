@@ -47,12 +47,25 @@ ISCC.exe installer\windows\SleepOnLan.iss
 The installer:
 
 - installs `sol.exe` under `C:\Program Files\SleepOnLan`
+- installs `uninstall.bat` under `C:\Program Files\SleepOnLan`
 - creates `C:\ProgramData\SleepOnLan`
 - installs or updates the Windows Service
 - opens inbound UDP port 9 in Windows Firewall
 - starts the service
 
-On uninstall, it stops and removes the service and deletes the firewall rule.
+Uninstall from Windows Settings or the Start Menu "Uninstall Sleep on LAN" entry. On uninstall, it stops and removes the service and deletes the firewall rule.
+
+For manual installs or development builds, run from an elevated terminal:
+
+```bat
+scripts\windows\uninstall.bat
+```
+
+The uninstaller leaves configuration and logs in place:
+
+```text
+C:\ProgramData\SleepOnLan
+```
 
 ## Foreground Debugging
 
