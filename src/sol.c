@@ -38,9 +38,12 @@
 #include <process.h>
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Iphlpapi.lib")
+#pragma comment(lib, "Advapi32.lib")
 #endif
 
 #define SOL_VERSION "0.1.0"
+#define SOL_SERVICE_NAME "SleepOnLan"
+#define SOL_SERVICE_DISPLAY_NAME "Sleep on LAN"
 #define MAX_LISTENERS 16
 #define MAX_COMMANDS 32
 #define MAX_MACS 64
@@ -99,6 +102,11 @@ static LocalMac g_local_macs[MAX_MACS];
 static int g_local_mac_count = 0;
 
 #ifdef _WIN32
+static SERVICE_STATUS_HANDLE g_service_status_handle = NULL;
+static SERVICE_STATUS g_service_status;
+static bool g_running_as_service = false;
+static const char *g_service_config_arg = NULL;
+
 typedef uintptr_t thread_t;
 typedef SOCKET socket_t;
 typedef int socket_len_t;
@@ -118,6 +126,19 @@ typedef void *(*thread_fn_t)(void *);
 #define close_socket close
 #endif
 
+#ifdef _WIN32
+static void windows_event_log(WORD type, const char *message) {
+    HANDLE event_source = RegisterEventSourceA(NULL, SOL_SERVICE_NAME);
+    if (!event_source) {
+        return;
+    }
+    LPCSTR strings[1];
+    strings[0] = message;
+    ReportEventA(event_source, type, 0, 0, NULL, 1, 0, strings, NULL);
+    DeregisterEventSource(event_source);
+}
+#endif
+
 static void log_msg(const char *level, const char *fmt, ...) {
     time_t now = time(NULL);
     struct tm tmv;
@@ -133,12 +154,23 @@ static void log_msg(const char *level, const char *fmt, ...) {
 #endif
     char stamp[32];
     strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tmv);
-    fprintf(stderr, "%s [%s] ", stamp, level);
+    char message[2048];
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
+    vsnprintf(message, sizeof(message), fmt, ap);
     va_end(ap);
-    fputc('\n', stderr);
+    fprintf(stderr, "%s [%s] %s\n", stamp, level, message);
+#ifdef _WIN32
+    if (g_running_as_service) {
+        WORD type = EVENTLOG_INFORMATION_TYPE;
+        if (strcmp(level, "ERROR") == 0) {
+            type = EVENTLOG_ERROR_TYPE;
+        } else if (strcmp(level, "WARN") == 0) {
+            type = EVENTLOG_WARNING_TYPE;
+        }
+        windows_event_log(type, message);
+    }
+#endif
 }
 
 static void handle_signal(int sig) {
@@ -649,13 +681,33 @@ static bool load_config(Config *cfg, const char *path) {
     return true;
 }
 
+#ifdef _WIN32
+static bool windows_programdata_config_path(char *out, size_t out_size) {
+    char program_data[MAX_PATH];
+    DWORD n = GetEnvironmentVariableA("ProgramData", program_data, sizeof(program_data));
+    if (n == 0 || n >= sizeof(program_data)) {
+        snprintf(program_data, sizeof(program_data), "C:\\ProgramData");
+    }
+    int written = snprintf(out, out_size, "%s\\SleepOnLan\\sol.json", program_data);
+    return written > 0 && (size_t)written < out_size;
+}
+#endif
+
 static const char *find_config_path(const char *requested) {
     static char selected[512];
+#ifdef _WIN32
+    char programdata_config[512] = {0};
+    windows_programdata_config_path(programdata_config, sizeof(programdata_config));
+#endif
     const char *candidates[] = {
         requested,
         "sol.json",
+#ifdef _WIN32
+        programdata_config,
+#else
         "/etc/sol.json",
         "/etc/sleep-on-lan.json",
+#endif
         NULL
     };
     for (int i = 0; candidates[i]; i++) {
@@ -931,7 +983,7 @@ static void appendf(char *buf, size_t size, const char *fmt, ...) {
 
 static void render_root(Config *cfg, char *body, size_t size, bool json) {
     if (json) {
-        appendf(body, size, "{\"application\":\"sleep-on-lap\",\"version\":\"%s\",\"hosts\":[", SOL_VERSION);
+        appendf(body, size, "{\"application\":\"sleep-on-lan\",\"version\":\"%s\",\"hosts\":[", SOL_VERSION);
         for (int i = 0; i < g_local_mac_count; i++) {
             appendf(body, size, "%s{\"interface\":\"%s\",\"mac\":\"%s\",\"reversedMac\":\"%s\"}",
                     i ? "," : "", g_local_macs[i].name, g_local_macs[i].text, g_local_macs[i].reversed);
@@ -950,7 +1002,7 @@ static void render_root(Config *cfg, char *body, size_t size, bool json) {
         appendf(body, size, "]}");
         return;
     }
-    appendf(body, size, "<result application=\"sleep-on-lap\" version=\"%s\"><hosts>", SOL_VERSION);
+    appendf(body, size, "<result application=\"sleep-on-lan\" version=\"%s\"><hosts>", SOL_VERSION);
     for (int i = 0; i < g_local_mac_count; i++) {
         appendf(body, size, "<host interface=\"%s\" mac=\"%s\" reversed-mac=\"%s\"/>",
                 g_local_macs[i].name, g_local_macs[i].text, g_local_macs[i].reversed);
@@ -1065,7 +1117,7 @@ static void http_send(socket_t client, int status, const char *status_text, cons
     snprintf(header, sizeof(header),
              "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n%s\r\n",
              status, status_text, content_type, strlen(body),
-             auth ? "WWW-Authenticate: Basic realm=\"sleep-on-lap\"\r\n" : "");
+             auth ? "WWW-Authenticate: Basic realm=\"sleep-on-lan\"\r\n" : "");
     send(client, header, (int)strlen(header), 0);
     send(client, body, (int)strlen(body), 0);
 }
@@ -1275,11 +1327,16 @@ static void print_default_config(FILE *out) {
 
 static void usage(FILE *out) {
     fprintf(out,
-            "Sleep-On-Lap %s\n\n"
+            "Sleep-On-LAN %s\n\n"
             "Usage:\n"
-            "  sol [--config FILE] [--verbose]\n"
+            "  sol [--config FILE] [--verbose] [run]\n"
             "  sol [--config FILE] generate-configuration\n"
-            "  sol --version\n\n"
+            "  sol --version\n"
+#ifdef _WIN32
+            "  sol service\n"
+            "  sol install|uninstall|start|stop|restart|status\n"
+#endif
+            "\n"
             "Options:\n"
             "  -c, --config FILE   Configuration file to use\n"
             "  -v, --verbose       Enable extra startup logging\n"
@@ -1287,60 +1344,35 @@ static void usage(FILE *out) {
             SOL_VERSION);
 }
 
-int main(int argc, char **argv) {
-#ifdef _WIN32
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
-#endif
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-    const char *config_arg = NULL;
-    bool generate = false;
+static int generate_config_file(const char *config_arg) {
+    if (config_arg) {
+        FILE *f = fopen(config_arg, "rb");
+        if (f) {
+            fclose(f);
+            log_msg("ERROR", "Refusing to overwrite existing file %s", config_arg);
+            return 1;
+        }
+        f = fopen(config_arg, "wb");
+        if (!f) {
+            log_msg("ERROR", "Unable to write %s: %s", config_arg, strerror(errno));
+            return 1;
+        }
+        print_default_config(f);
+        fclose(f);
+        log_msg("INFO", "Wrote default configuration to %s", config_arg);
+    } else {
+        print_default_config(stdout);
+    }
+    return 0;
+}
+
+static int run_configured_server(const char *config_arg, bool verbose) {
+    g_running = 1;
+    g_udp_action_pending = 0;
     Config cfg;
     init_default_config(&cfg);
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--config") == 0) {
-            if (i + 1 >= argc) {
-                usage(stderr);
-                return 2;
-            }
-            config_arg = argv[++i];
-        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
-            cfg.verbose = true;
-        } else if (strcmp(argv[i], "--version") == 0) {
-            printf("sleep-on-lap %s\n", SOL_VERSION);
-            return 0;
-        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            usage(stdout);
-            return 0;
-        } else if (strcmp(argv[i], "generate-configuration") == 0) {
-            generate = true;
-        } else {
-            usage(stderr);
-            return 2;
-        }
-    }
-    if (generate) {
-        if (config_arg) {
-            FILE *f = fopen(config_arg, "rb");
-            if (f) {
-                fclose(f);
-                log_msg("ERROR", "Refusing to overwrite existing file %s", config_arg);
-                return 1;
-            }
-            f = fopen(config_arg, "wb");
-            if (!f) {
-                log_msg("ERROR", "Unable to write %s: %s", config_arg, strerror(errno));
-                return 1;
-            }
-            print_default_config(f);
-            fclose(f);
-            log_msg("INFO", "Wrote default configuration to %s", config_arg);
-        } else {
-            print_default_config(stdout);
-        }
-        return 0;
-    }
+    cfg.verbose = verbose;
+
     const char *config_path = find_config_path(config_arg);
     if (config_path) {
         if (!load_config(&cfg, config_path)) {
@@ -1351,7 +1383,7 @@ int main(int argc, char **argv) {
         log_msg("INFO", "No configuration file found, using built-in defaults");
     }
     load_local_macs();
-    log_msg("INFO", "sleep-on-lap %s starting", SOL_VERSION);
+    log_msg("INFO", "sleep-on-lan %s starting", SOL_VERSION);
     for (int i = 0; i < g_local_mac_count; i++) {
         log_msg("INFO", "Interface %s MAC %s reversed %s",
                 g_local_macs[i].name, g_local_macs[i].text, g_local_macs[i].reversed);
@@ -1390,8 +1422,447 @@ int main(int argc, char **argv) {
         sleep_ms(250);
     }
     log_msg("INFO", "Shutting down");
+    return 0;
+}
+
+#ifdef _WIN32
+typedef enum {
+    WINDOWS_ACTION_NONE,
+    WINDOWS_ACTION_SERVICE,
+    WINDOWS_ACTION_INSTALL,
+    WINDOWS_ACTION_UNINSTALL,
+    WINDOWS_ACTION_START,
+    WINDOWS_ACTION_STOP,
+    WINDOWS_ACTION_RESTART,
+    WINDOWS_ACTION_STATUS
+} WindowsAction;
+
+static const char *win32_error_message(void) {
+    static char buf[128];
+    snprintf(buf, sizeof(buf), "Win32 error %lu", GetLastError());
+    return buf;
+}
+
+static bool windows_programdata_dir(char *out, size_t out_size) {
+    char program_data[MAX_PATH];
+    DWORD n = GetEnvironmentVariableA("ProgramData", program_data, sizeof(program_data));
+    if (n == 0 || n >= sizeof(program_data)) {
+        snprintf(program_data, sizeof(program_data), "C:\\ProgramData");
+    }
+    int written = snprintf(out, out_size, "%s\\SleepOnLan", program_data);
+    return written > 0 && (size_t)written < out_size;
+}
+
+static bool ensure_windows_programdata_config(void) {
+    char dir[512];
+    char config_path[512];
+    if (!windows_programdata_dir(dir, sizeof(dir)) ||
+        !windows_programdata_config_path(config_path, sizeof(config_path))) {
+        return false;
+    }
+    DWORD attrs = GetFileAttributesA(dir);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        if (!CreateDirectoryA(dir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+            log_msg("ERROR", "Unable to create %s: %s", dir, win32_error_message());
+            return false;
+        }
+    }
+    FILE *f = fopen(config_path, "rb");
+    if (f) {
+        fclose(f);
+        return true;
+    }
+    f = fopen(config_path, "wb");
+    if (!f) {
+        log_msg("ERROR", "Unable to create %s", config_path);
+        return false;
+    }
+    print_default_config(f);
+    fclose(f);
+    log_msg("INFO", "Created default configuration at %s", config_path);
+    return true;
+}
+
+static void set_service_status(DWORD current_state, DWORD win32_exit_code, DWORD wait_hint) {
+    static DWORD checkpoint = 1;
+    if (!g_service_status_handle) {
+        return;
+    }
+    g_service_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    g_service_status.dwCurrentState = current_state;
+    g_service_status.dwWin32ExitCode = win32_exit_code;
+    g_service_status.dwWaitHint = wait_hint;
+    g_service_status.dwControlsAccepted = 0;
+    if (current_state == SERVICE_RUNNING) {
+        g_service_status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+    }
+    if (current_state == SERVICE_START_PENDING || current_state == SERVICE_STOP_PENDING) {
+        g_service_status.dwCheckPoint = checkpoint++;
+    } else {
+        g_service_status.dwCheckPoint = 0;
+    }
+    SetServiceStatus(g_service_status_handle, &g_service_status);
+}
+
+static DWORD WINAPI service_control_handler(DWORD control, DWORD event_type, LPVOID event_data, LPVOID context) {
+    (void)event_type;
+    (void)event_data;
+    (void)context;
+    if (control == SERVICE_CONTROL_STOP || control == SERVICE_CONTROL_SHUTDOWN) {
+        set_service_status(SERVICE_STOP_PENDING, NO_ERROR, 3000);
+        g_running = 0;
+        return NO_ERROR;
+    }
+    return ERROR_CALL_NOT_IMPLEMENTED;
+}
+
+static VOID WINAPI service_main(DWORD argc, LPSTR *argv) {
+    (void)argc;
+    (void)argv;
+    g_running_as_service = true;
+    g_service_status_handle = RegisterServiceCtrlHandlerExA(SOL_SERVICE_NAME, service_control_handler, NULL);
+    if (!g_service_status_handle) {
+        windows_event_log(EVENTLOG_ERROR_TYPE, "Unable to register service control handler");
+        return;
+    }
+    set_service_status(SERVICE_START_PENDING, NO_ERROR, 3000);
+    set_service_status(SERVICE_RUNNING, NO_ERROR, 0);
+    int rc = run_configured_server(g_service_config_arg, false);
+    set_service_status(SERVICE_STOPPED, rc == 0 ? NO_ERROR : ERROR_SERVICE_SPECIFIC_ERROR, 0);
+}
+
+static int dispatch_windows_service(bool explicit_service) {
+    SERVICE_TABLE_ENTRYA table[] = {
+        { (LPSTR)SOL_SERVICE_NAME, service_main },
+        { NULL, NULL }
+    };
+    if (StartServiceCtrlDispatcherA(table)) {
+        return 1;
+    }
+    DWORD error = GetLastError();
+    if (error == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT && !explicit_service) {
+        return 0;
+    }
+    log_msg("ERROR", "Unable to start service dispatcher: Win32 error %lu", error);
+    return -1;
+}
+
+static bool current_executable_path(char *out, size_t out_size) {
+    DWORD n = GetModuleFileNameA(NULL, out, (DWORD)out_size);
+    return n > 0 && n < out_size;
+}
+
+static SC_HANDLE open_service_manager(DWORD access) {
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, access);
+    if (!scm) {
+        log_msg("ERROR", "Unable to open Service Control Manager: %s", win32_error_message());
+    }
+    return scm;
+}
+
+static int windows_install_service(void) {
+    if (!ensure_windows_programdata_config()) {
+        return 1;
+    }
+    char exe[MAX_PATH];
+    char bin_path[MAX_PATH + 4];
+    if (!current_executable_path(exe, sizeof(exe))) {
+        log_msg("ERROR", "Unable to resolve executable path: %s", win32_error_message());
+        return 1;
+    }
+    snprintf(bin_path, sizeof(bin_path), "\"%s\"", exe);
+    SC_HANDLE scm = open_service_manager(SC_MANAGER_CREATE_SERVICE);
+    if (!scm) {
+        return 1;
+    }
+    SC_HANDLE service = CreateServiceA(
+        scm,
+        SOL_SERVICE_NAME,
+        SOL_SERVICE_DISPLAY_NAME,
+        SERVICE_ALL_ACCESS,
+        SERVICE_WIN32_OWN_PROCESS,
+        SERVICE_AUTO_START,
+        SERVICE_ERROR_NORMAL,
+        bin_path,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL);
+    if (!service) {
+        DWORD error = GetLastError();
+        if (error == ERROR_SERVICE_EXISTS) {
+            service = OpenServiceA(scm, SOL_SERVICE_NAME, SERVICE_CHANGE_CONFIG);
+            if (!service) {
+                log_msg("ERROR", "Service %s exists but could not be opened: %s",
+                        SOL_SERVICE_NAME, win32_error_message());
+                CloseServiceHandle(scm);
+                return 1;
+            }
+            if (!ChangeServiceConfigA(
+                    service,
+                    SERVICE_WIN32_OWN_PROCESS,
+                    SERVICE_AUTO_START,
+                    SERVICE_ERROR_NORMAL,
+                    bin_path,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    SOL_SERVICE_DISPLAY_NAME)) {
+                log_msg("ERROR", "Unable to update service: %s", win32_error_message());
+                CloseServiceHandle(service);
+                CloseServiceHandle(scm);
+                return 1;
+            }
+            log_msg("INFO", "Updated %s service using %s", SOL_SERVICE_NAME, bin_path);
+        } else {
+            log_msg("ERROR", "Unable to create service: Win32 error %lu", error);
+            CloseServiceHandle(scm);
+            return 1;
+        }
+    } else {
+        log_msg("INFO", "Installed %s service using %s", SOL_SERVICE_NAME, bin_path);
+    }
+    SC_ACTION actions[1];
+    actions[0].Type = SC_ACTION_RESTART;
+    actions[0].Delay = 60000;
+    SERVICE_FAILURE_ACTIONSA failure_actions;
+    memset(&failure_actions, 0, sizeof(failure_actions));
+    failure_actions.dwResetPeriod = 86400;
+    failure_actions.cActions = 1;
+    failure_actions.lpsaActions = actions;
+    ChangeServiceConfig2A(service, SERVICE_CONFIG_FAILURE_ACTIONS, &failure_actions);
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return 0;
+}
+
+static int windows_start_service(void) {
+    SC_HANDLE scm = open_service_manager(SC_MANAGER_CONNECT);
+    if (!scm) {
+        return 1;
+    }
+    SC_HANDLE service = OpenServiceA(scm, SOL_SERVICE_NAME, SERVICE_START);
+    if (!service) {
+        log_msg("ERROR", "Unable to open service: %s", win32_error_message());
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    BOOL ok = StartServiceA(service, 0, NULL);
+    if (!ok && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING) {
+        log_msg("ERROR", "Unable to start service: %s", win32_error_message());
+        CloseServiceHandle(service);
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    log_msg("INFO", "Service %s is running", SOL_SERVICE_NAME);
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return 0;
+}
+
+static int windows_stop_service(void) {
+    SC_HANDLE scm = open_service_manager(SC_MANAGER_CONNECT);
+    if (!scm) {
+        return 1;
+    }
+    SC_HANDLE service = OpenServiceA(scm, SOL_SERVICE_NAME, SERVICE_STOP | SERVICE_QUERY_STATUS);
+    if (!service) {
+        log_msg("ERROR", "Unable to open service: %s", win32_error_message());
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    SERVICE_STATUS status;
+    BOOL ok = ControlService(service, SERVICE_CONTROL_STOP, &status);
+    if (!ok && GetLastError() != ERROR_SERVICE_NOT_ACTIVE) {
+        log_msg("ERROR", "Unable to stop service: %s", win32_error_message());
+        CloseServiceHandle(service);
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    log_msg("INFO", "Service %s stop requested", SOL_SERVICE_NAME);
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return 0;
+}
+
+static int windows_uninstall_service(void) {
+    SC_HANDLE scm = open_service_manager(SC_MANAGER_CONNECT);
+    if (!scm) {
+        return 1;
+    }
+    SC_HANDLE service = OpenServiceA(scm, SOL_SERVICE_NAME, DELETE | SERVICE_STOP | SERVICE_QUERY_STATUS);
+    if (!service) {
+        log_msg("ERROR", "Unable to open service: %s", win32_error_message());
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    SERVICE_STATUS status;
+    ControlService(service, SERVICE_CONTROL_STOP, &status);
+    if (!DeleteService(service)) {
+        log_msg("ERROR", "Unable to delete service: %s", win32_error_message());
+        CloseServiceHandle(service);
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    log_msg("INFO", "Uninstalled %s service", SOL_SERVICE_NAME);
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return 0;
+}
+
+static const char *service_state_name(DWORD state) {
+    switch (state) {
+        case SERVICE_STOPPED: return "stopped";
+        case SERVICE_START_PENDING: return "start-pending";
+        case SERVICE_STOP_PENDING: return "stop-pending";
+        case SERVICE_RUNNING: return "running";
+        case SERVICE_CONTINUE_PENDING: return "continue-pending";
+        case SERVICE_PAUSE_PENDING: return "pause-pending";
+        case SERVICE_PAUSED: return "paused";
+        default: return "unknown";
+    }
+}
+
+static int windows_service_status(void) {
+    SC_HANDLE scm = open_service_manager(SC_MANAGER_CONNECT);
+    if (!scm) {
+        return 1;
+    }
+    SC_HANDLE service = OpenServiceA(scm, SOL_SERVICE_NAME, SERVICE_QUERY_STATUS);
+    if (!service) {
+        log_msg("ERROR", "Unable to open service: %s", win32_error_message());
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    SERVICE_STATUS_PROCESS status;
+    DWORD needed = 0;
+    if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO, (LPBYTE)&status, sizeof(status), &needed)) {
+        log_msg("ERROR", "Unable to query service: %s", win32_error_message());
+        CloseServiceHandle(service);
+        CloseServiceHandle(scm);
+        return 1;
+    }
+    printf("%s: %s\n", SOL_SERVICE_NAME, service_state_name(status.dwCurrentState));
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return 0;
+}
+
+static int run_windows_action(WindowsAction action) {
+    switch (action) {
+        case WINDOWS_ACTION_INSTALL:
+            return windows_install_service();
+        case WINDOWS_ACTION_UNINSTALL:
+            return windows_uninstall_service();
+        case WINDOWS_ACTION_START:
+            return windows_start_service();
+        case WINDOWS_ACTION_STOP:
+            return windows_stop_service();
+        case WINDOWS_ACTION_RESTART:
+            if (windows_stop_service() != 0) {
+                return 1;
+            }
+            sleep_ms(1000);
+            return windows_start_service();
+        case WINDOWS_ACTION_STATUS:
+            return windows_service_status();
+        case WINDOWS_ACTION_SERVICE:
+        case WINDOWS_ACTION_NONE:
+            break;
+    }
+    return 0;
+}
+#endif
+
+int main(int argc, char **argv) {
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+    const char *config_arg = NULL;
+    bool verbose = false;
+    bool generate = false;
+    bool foreground_run = false;
+#ifdef _WIN32
+    WindowsAction windows_action = WINDOWS_ACTION_NONE;
+#endif
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--config") == 0) {
+            if (i + 1 >= argc) {
+                usage(stderr);
+                return 2;
+            }
+            config_arg = argv[++i];
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            verbose = true;
+        } else if (strcmp(argv[i], "--version") == 0) {
+            printf("sleep-on-lan %s\n", SOL_VERSION);
+            return 0;
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            usage(stdout);
+            return 0;
+        } else if (strcmp(argv[i], "generate-configuration") == 0) {
+            generate = true;
+#ifdef _WIN32
+        } else if (strcmp(argv[i], "service") == 0) {
+            windows_action = WINDOWS_ACTION_SERVICE;
+        } else if (strcmp(argv[i], "install") == 0) {
+            windows_action = WINDOWS_ACTION_INSTALL;
+        } else if (strcmp(argv[i], "uninstall") == 0) {
+            windows_action = WINDOWS_ACTION_UNINSTALL;
+        } else if (strcmp(argv[i], "start") == 0) {
+            windows_action = WINDOWS_ACTION_START;
+        } else if (strcmp(argv[i], "stop") == 0) {
+            windows_action = WINDOWS_ACTION_STOP;
+        } else if (strcmp(argv[i], "restart") == 0) {
+            windows_action = WINDOWS_ACTION_RESTART;
+        } else if (strcmp(argv[i], "status") == 0) {
+            windows_action = WINDOWS_ACTION_STATUS;
+#endif
+        } else if (strcmp(argv[i], "run") == 0) {
+            foreground_run = true;
+        } else {
+            usage(stderr);
+            return 2;
+        }
+    }
+    if (generate) {
+        return generate_config_file(config_arg);
+    }
+#ifdef _WIN32
+    if (windows_action != WINDOWS_ACTION_NONE && windows_action != WINDOWS_ACTION_SERVICE) {
+        int rc = run_windows_action(windows_action);
+        WSACleanup();
+        return rc;
+    }
+    g_service_config_arg = config_arg;
+    if (windows_action == WINDOWS_ACTION_SERVICE) {
+        int service_result = dispatch_windows_service(true);
+        WSACleanup();
+        return service_result == 1 ? 0 : 1;
+    }
+    if (!foreground_run) {
+        int service_result = dispatch_windows_service(false);
+        if (service_result == 1) {
+            WSACleanup();
+            return 0;
+        }
+        if (service_result < 0) {
+            WSACleanup();
+            return 1;
+        }
+    }
+#else
+    (void)foreground_run;
+#endif
+    int rc = run_configured_server(config_arg, verbose);
 #ifdef _WIN32
     WSACleanup();
 #endif
-    return 0;
+    return rc;
 }

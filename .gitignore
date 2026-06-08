@@ -2,3 +2,5 @@ sol
 *.o
 *.log
 sol.json
+
+plans/

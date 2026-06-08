@@ -30,7 +30,9 @@ Windows with Visual Studio Developer Command Prompt:
 build-msvc.bat
 ```
 
-The Windows build links only `ws2_32` and `iphlpapi`, both provided by Windows.
+The Windows build links only `ws2_32`, `iphlpapi`, and `advapi32`, all provided by Windows.
+
+For Windows Service installation and the Inno Setup installer, see [README-Windows.md](README-Windows.md).
 
 ## Run
 
