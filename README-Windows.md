@@ -50,7 +50,7 @@ The installer:
 - installs `uninstall.bat` under `C:\Program Files\SleepOnLan`
 - creates `C:\ProgramData\SleepOnLan`
 - installs or updates the Windows Service
-- opens inbound UDP port 9 in Windows Firewall
+- opens inbound UDP ports 7 and 9 in Windows Firewall
 - starts the service
 
 Uninstall from Windows Settings or the Start Menu "Uninstall Sleep on LAN" entry. On uninstall, it stops and removes the service and deletes the firewall rule.

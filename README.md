@@ -43,7 +43,7 @@ For Windows Service installation and the Inno Setup installer, see [README-Windo
 sudo ./sol
 ```
 
-Port 9 normally requires elevated privileges. For development, use higher ports:
+Ports 7 and 9 normally require elevated privileges. For development, use higher ports:
 
 ```sh
 ./sol --config examples/sol-basic-configuration.json
@@ -68,7 +68,7 @@ Generate a full default configuration:
 
 Supported fields mirror the original project where practical:
 
-- `Listeners`: `UDP`, `UDP:<port>`, `HTTP`, or `HTTP:<port>`
+- `Listeners`: `UDP`, `UDP:<port>`, `HTTP`, or `HTTP:<port>`; the default configuration listens on UDP ports 7 and 9
 - `BroadcastIP`: broadcast address used by `/wol/<mac>`
 - `HTTPOutput`: `XML` or `JSON`
 - `Auth.Login` and `Auth.Password`: optional HTTP Basic Auth

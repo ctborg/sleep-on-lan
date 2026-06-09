@@ -1,5 +1,6 @@
 {
   "Listeners": [
+    "UDP:7",
     "UDP:9",
     "HTTP:8009"
   ],

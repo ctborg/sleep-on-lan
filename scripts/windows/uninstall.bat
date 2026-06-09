@@ -10,7 +10,8 @@ if errorlevel 1 (
 
 set "APP_DIR=%ProgramFiles%\SleepOnLan"
 set "SOL_EXE=%APP_DIR%\sol.exe"
-set "FIREWALL_RULE=Sleep on LAN UDP 9"
+set "FIREWALL_RULE_7=Sleep on LAN UDP 7"
+set "FIREWALL_RULE_9=Sleep on LAN UDP 9"
 
 if exist "%SOL_EXE%" (
   "%SOL_EXE%" stop
@@ -20,9 +21,10 @@ if exist "%SOL_EXE%" (
   sc delete SleepOnLan >nul 2>&1
 )
 
-netsh advfirewall firewall delete rule name="%FIREWALL_RULE%" protocol=UDP localport=9 >nul 2>&1
+netsh advfirewall firewall delete rule name="%FIREWALL_RULE_7%" protocol=UDP localport=7 >nul 2>&1
+netsh advfirewall firewall delete rule name="%FIREWALL_RULE_9%" protocol=UDP localport=9 >nul 2>&1
 
-echo Sleep on LAN service and firewall rule removed.
+echo Sleep on LAN service and firewall rules removed.
 echo Configuration and logs were left in:
 echo   %ProgramData%\SleepOnLan
 
