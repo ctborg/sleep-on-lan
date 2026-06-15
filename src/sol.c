@@ -35,16 +35,22 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <iphlpapi.h>
+#include <netfw.h>
+#include <ole2.h>
 #include <process.h>
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Iphlpapi.lib")
 #pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "Ole32.lib")
+#pragma comment(lib, "OleAut32.lib")
 #endif
 
 #define SOL_VERSION "0.1.0"
 #define SOL_SERVICE_NAME "SleepOnLan"
 #define SOL_SERVICE_DISPLAY_NAME "Sleep on LAN"
 #define SOL_SERVICE_DESCRIPTION "Listens for inverse Wake-on-LAN packets and puts this computer to sleep."
+#define SOL_FIREWALL_RULE_NAME_7 "Sleep on LAN UDP 7"
+#define SOL_FIREWALL_RULE_NAME_9 "Sleep on LAN UDP 9"
 #define MAX_LISTENERS 16
 #define MAX_COMMANDS 32
 #define MAX_MACS 64
@@ -1564,6 +1570,154 @@ static SC_HANDLE open_service_manager(DWORD access) {
     return scm;
 }
 
+static bool utf8_to_bstr(const char *text, BSTR *out) {
+    int needed = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    if (needed <= 0) {
+        return false;
+    }
+    wchar_t *wide = (wchar_t *)calloc((size_t)needed, sizeof(wchar_t));
+    if (!wide) {
+        return false;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, needed);
+    *out = SysAllocString(wide);
+    free(wide);
+    return *out != NULL;
+}
+
+static HRESULT open_firewall_rules(INetFwPolicy2 **policy, INetFwRules **rules) {
+    *policy = NULL;
+    *rules = NULL;
+    HRESULT hr = CoCreateInstance(&CLSID_NetFwPolicy2, NULL, CLSCTX_INPROC_SERVER,
+                                  &IID_INetFwPolicy2, (void **)policy);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    hr = (*policy)->lpVtbl->get_Rules(*policy, rules);
+    if (FAILED(hr)) {
+        (*policy)->lpVtbl->Release(*policy);
+        *policy = NULL;
+    }
+    return hr;
+}
+
+static bool firewall_remove_rule(INetFwRules *rules, const char *name) {
+    BSTR rule_name = NULL;
+    if (!utf8_to_bstr(name, &rule_name)) {
+        return false;
+    }
+    HRESULT hr = rules->lpVtbl->Remove(rules, rule_name);
+    SysFreeString(rule_name);
+    return SUCCEEDED(hr) || hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+}
+
+static bool firewall_add_udp_rule(INetFwRules *rules, const char *name, long port) {
+    INetFwRule *rule = NULL;
+    HRESULT hr = CoCreateInstance(&CLSID_NetFwRule, NULL, CLSCTX_INPROC_SERVER,
+                                  &IID_INetFwRule, (void **)&rule);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    char port_text[16];
+    snprintf(port_text, sizeof(port_text), "%ld", port);
+    BSTR rule_name = NULL;
+    BSTR ports = NULL;
+    BSTR description = NULL;
+    if (!utf8_to_bstr(name, &rule_name) ||
+        !utf8_to_bstr(port_text, &ports) ||
+        !utf8_to_bstr(SOL_SERVICE_DESCRIPTION, &description)) {
+        if (rule_name) SysFreeString(rule_name);
+        if (ports) SysFreeString(ports);
+        if (description) SysFreeString(description);
+        rule->lpVtbl->Release(rule);
+        return false;
+    }
+
+    hr = rule->lpVtbl->put_Name(rule, rule_name);
+    if (SUCCEEDED(hr)) hr = rule->lpVtbl->put_Description(rule, description);
+    if (SUCCEEDED(hr)) hr = rule->lpVtbl->put_Protocol(rule, NET_FW_IP_PROTOCOL_UDP);
+    if (SUCCEEDED(hr)) hr = rule->lpVtbl->put_LocalPorts(rule, ports);
+    if (SUCCEEDED(hr)) hr = rule->lpVtbl->put_Direction(rule, NET_FW_RULE_DIR_IN);
+    if (SUCCEEDED(hr)) hr = rule->lpVtbl->put_Action(rule, NET_FW_ACTION_ALLOW);
+    if (SUCCEEDED(hr)) hr = rule->lpVtbl->put_Enabled(rule, VARIANT_TRUE);
+    if (SUCCEEDED(hr)) hr = rules->lpVtbl->Add(rules, rule);
+
+    SysFreeString(rule_name);
+    SysFreeString(ports);
+    SysFreeString(description);
+    rule->lpVtbl->Release(rule);
+    return SUCCEEDED(hr);
+}
+
+static bool windows_firewall_add_rules(void) {
+    HRESULT init_hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    bool co_initialized = SUCCEEDED(init_hr);
+    if (init_hr == RPC_E_CHANGED_MODE) {
+        co_initialized = false;
+    } else if (FAILED(init_hr)) {
+        log_msg("ERROR", "Unable to initialize COM for firewall setup: HRESULT 0x%08lx", (unsigned long)init_hr);
+        return false;
+    }
+
+    INetFwPolicy2 *policy = NULL;
+    INetFwRules *rules = NULL;
+    HRESULT hr = open_firewall_rules(&policy, &rules);
+    if (FAILED(hr)) {
+        log_msg("ERROR", "Unable to open Windows Firewall policy: HRESULT 0x%08lx", (unsigned long)hr);
+        if (co_initialized) CoUninitialize();
+        return false;
+    }
+
+    firewall_remove_rule(rules, SOL_FIREWALL_RULE_NAME_7);
+    firewall_remove_rule(rules, SOL_FIREWALL_RULE_NAME_9);
+    bool ok7 = firewall_add_udp_rule(rules, SOL_FIREWALL_RULE_NAME_7, 7);
+    bool ok9 = firewall_add_udp_rule(rules, SOL_FIREWALL_RULE_NAME_9, 9);
+    if (!ok7 || !ok9) {
+        log_msg("ERROR", "Unable to create Windows Firewall rules for UDP ports 7 and 9");
+    } else {
+        log_msg("INFO", "Created Windows Firewall rules for UDP ports 7 and 9");
+    }
+
+    rules->lpVtbl->Release(rules);
+    policy->lpVtbl->Release(policy);
+    if (co_initialized) CoUninitialize();
+    return ok7 && ok9;
+}
+
+static bool windows_firewall_remove_rules(void) {
+    HRESULT init_hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    bool co_initialized = SUCCEEDED(init_hr);
+    if (init_hr == RPC_E_CHANGED_MODE) {
+        co_initialized = false;
+    } else if (FAILED(init_hr)) {
+        log_msg("ERROR", "Unable to initialize COM for firewall cleanup: HRESULT 0x%08lx", (unsigned long)init_hr);
+        return false;
+    }
+
+    INetFwPolicy2 *policy = NULL;
+    INetFwRules *rules = NULL;
+    HRESULT hr = open_firewall_rules(&policy, &rules);
+    if (FAILED(hr)) {
+        log_msg("ERROR", "Unable to open Windows Firewall policy: HRESULT 0x%08lx", (unsigned long)hr);
+        if (co_initialized) CoUninitialize();
+        return false;
+    }
+
+    bool ok7 = firewall_remove_rule(rules, SOL_FIREWALL_RULE_NAME_7);
+    bool ok9 = firewall_remove_rule(rules, SOL_FIREWALL_RULE_NAME_9);
+    if (!ok7 || !ok9) {
+        log_msg("WARN", "Windows Firewall rule cleanup did not complete cleanly");
+    } else {
+        log_msg("INFO", "Removed Windows Firewall rules for UDP ports 7 and 9");
+    }
+
+    rules->lpVtbl->Release(rules);
+    policy->lpVtbl->Release(policy);
+    if (co_initialized) CoUninitialize();
+    return ok7 && ok9;
+}
+
 static int windows_install_service(void) {
     if (!ensure_windows_programdata_config()) {
         return 1;
@@ -1575,7 +1729,7 @@ static int windows_install_service(void) {
         return 1;
     }
     snprintf(bin_path, sizeof(bin_path), "\"%s\"", exe);
-    SC_HANDLE scm = open_service_manager(SC_MANAGER_CREATE_SERVICE);
+    SC_HANDLE scm = open_service_manager(SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE);
     if (!scm) {
         return 1;
     }
@@ -1641,6 +1795,11 @@ static int windows_install_service(void) {
     SERVICE_DESCRIPTIONA description;
     description.lpDescription = (LPSTR)SOL_SERVICE_DESCRIPTION;
     ChangeServiceConfig2A(service, SERVICE_CONFIG_DESCRIPTION, &description);
+    if (!windows_firewall_add_rules()) {
+        CloseServiceHandle(service);
+        CloseServiceHandle(scm);
+        return 1;
+    }
     CloseServiceHandle(service);
     CloseServiceHandle(scm);
     return 0;
@@ -1696,6 +1855,7 @@ static int windows_stop_service(void) {
 }
 
 static int windows_uninstall_service(void) {
+    windows_firewall_remove_rules();
     SC_HANDLE scm = open_service_manager(SC_MANAGER_CONNECT);
     if (!scm) {
         return 1;

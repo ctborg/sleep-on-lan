@@ -7,7 +7,7 @@ LDLIBS ?=
 UNAME_S := $(shell uname -s 2>/dev/null)
 ifeq ($(OS),Windows_NT)
   EXEEXT := .exe
-  LDLIBS += -lws2_32 -liphlpapi -ladvapi32
+  LDLIBS += -lws2_32 -liphlpapi -ladvapi32 -lole32 -loleaut32 -luuid
 else
 ifeq ($(UNAME_S),Linux)
   LDLIBS += -pthread

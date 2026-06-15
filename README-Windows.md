@@ -36,6 +36,8 @@ C:\ProgramData\SleepOnLan\sol.json
 
 The installed service runs as `LocalSystem` because Windows sleep requires `SeShutdownPrivilege`.
 
+`install` also creates inbound Windows Firewall rules for UDP ports 7 and 9 using the native Windows Firewall API. `uninstall` removes those rules.
+
 ## Installer
 
 After building `sol.exe`, build the Inno Setup installer:
@@ -47,13 +49,12 @@ ISCC.exe installer\windows\SleepOnLan.iss
 The installer:
 
 - installs `sol.exe` under `C:\Program Files\SleepOnLan`
-- installs `uninstall.bat` under `C:\Program Files\SleepOnLan`
 - creates `C:\ProgramData\SleepOnLan`
 - installs or updates the Windows Service
-- opens inbound UDP ports 7 and 9 in Windows Firewall
+- opens inbound UDP ports 7 and 9 in Windows Firewall through `sol.exe install`
 - starts the service
 
-Uninstall from Windows Settings or the Start Menu "Uninstall Sleep on LAN" entry. On uninstall, it stops and removes the service and deletes the firewall rule.
+Uninstall from Windows Settings or the Start Menu "Uninstall Sleep on LAN" entry. On uninstall, it stops and removes the service and deletes the firewall rules.
 
 For manual installs or development builds, run from an elevated terminal:
 
@@ -61,7 +62,7 @@ For manual installs or development builds, run from an elevated terminal:
 scripts\windows\uninstall.bat
 ```
 
-The uninstaller leaves configuration and logs in place:
+The manual uninstaller leaves configuration and logs in place:
 
 ```text
 C:\ProgramData\SleepOnLan
