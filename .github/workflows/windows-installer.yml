@@ -7,6 +7,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
 jobs:
   build:
     name: Build Windows installer
@@ -30,6 +35,18 @@ jobs:
       - name: Build installer
         shell: cmd
         run: '"%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" installer\windows\SleepOnLan.iss'
+
+      - name: Generate Artifact Attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: installer/windows/Output/SleepOnLanSetup.exe
+
+      - name: Verify Artifact Attestation
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify installer/windows/Output/SleepOnLanSetup.exe --repo $env:GITHUB_REPOSITORY
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
