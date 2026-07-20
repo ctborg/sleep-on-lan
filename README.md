@@ -5,7 +5,7 @@ A dependency-free C implementation inspired by [SR-G/sleep-on-lan](https://githu
 It listens for Wake-on-LAN style UDP magic packets. If the MAC address encoded in the packet is the reverse of one of the local machine's MAC addresses, it runs the configured default command. It can also expose a tiny HTTP API for triggering commands and sending normal Wake-on-LAN packets.
 
 ## Windows Users
-You can [download the app here](https://github.com/ctborg/sleep-on-lan/releases/download/1.0.2/SleepOnLanSetup.exe)
+You can [download the MSI installer here](https://github.com/ctborg/sleep-on-lan/releases/download/v1.0.2/SleepOnLanSetup.msi)
 
 ## Build
 
@@ -33,9 +33,9 @@ Windows with Visual Studio Developer Command Prompt:
 build-msvc.bat
 ```
 
-The Windows build links only `ws2_32`, `iphlpapi`, and `advapi32`, all provided by Windows.
+The Windows build links only system libraries provided by Windows: `ws2_32`, `iphlpapi`, `advapi32`, `ole32`, `oleaut32`, and `uuid`.
 
-For Windows Service installation and the Inno Setup installer, see [README-Windows.md](README-Windows.md).
+For Windows Service installation and the MSI installer, see [README-Windows.md](README-Windows.md).
 
 ## Run
 

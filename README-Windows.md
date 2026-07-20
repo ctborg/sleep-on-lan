@@ -40,10 +40,11 @@ The installed service runs as `LocalSystem` because Windows sleep requires `SeSh
 
 ## Installer
 
-After building `sol.exe`, build the Inno Setup installer:
+After building `sol.exe`, build the WiX MSI installer:
 
 ```bat
-ISCC.exe installer\windows\SleepOnLan.iss
+wix extension add -acceptEula wix7 WixToolset.Firewall.wixext/7.0.0
+wix build -acceptEula wix7 installer\wix\Package.wxs -ext WixToolset.Firewall.wixext -d SourceDir=%CD% -o installer\wix\Output\SleepOnLanSetup.msi
 ```
 
 The installer:
@@ -53,6 +54,8 @@ The installer:
 - installs or updates the Windows Service
 - opens inbound UDP ports 7 and 9 in Windows Firewall through `sol.exe install`
 - starts the service
+
+The MSI installer also removes the legacy Inno Setup uninstall registration so upgrades from the old `.exe` installer do not leave a duplicate "Sleep on LAN version 0.1.0" entry in Windows Installed apps.
 
 Uninstall from Windows Settings or the Start Menu "Uninstall Sleep on LAN" entry. On uninstall, it stops and removes the service and deletes the firewall rules.
 

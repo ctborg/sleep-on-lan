@@ -61,6 +61,24 @@
           KeyPath="yes" />
       </Component>
 
+      <Component Id="RemoveLegacyInnoRegistration" Guid="46E4DC47-C658-4D37-86E1-C493E75D4F47">
+        <RemoveRegistryKey
+          Root="HKLM"
+          Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\{9D94EF61-BF2A-41E3-A9E4-B2EAC1E08FE6}_is1"
+          Action="removeOnInstall" />
+        <RemoveRegistryKey
+          Root="HKLM"
+          Key="Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{9D94EF61-BF2A-41E3-A9E4-B2EAC1E08FE6}_is1"
+          Action="removeOnInstall" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\SleepOnLan"
+          Name="RemovedLegacyInnoRegistration"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+
       <Component Id="FirewallUdp7" Guid="9F6D9734-CE2A-4578-A069-8111022C9D3E">
         <firewall:FirewallException
           Id="SleepOnLanUdp7"
