@@ -11,8 +11,8 @@ You can [download the app here](https://github.com/ctborg/sleep-on-lan/releases/
 You can [download the app on the App Store](https://apps.apple.com/app/computer-wake-up/id6761403700)
 
 ## Linux Users
-
-## Build
+You can follow the build instructions here:
+# Build
 
 ```sh
 make
