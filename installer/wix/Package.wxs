@@ -1,6 +1,7 @@
 <Wix
   xmlns="http://wixtoolset.org/schemas/v4/wxs"
-  xmlns:firewall="http://wixtoolset.org/schemas/v4/wxs/firewall">
+  xmlns:firewall="http://wixtoolset.org/schemas/v4/wxs/firewall"
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
   <Package
     Name="Sleep on LAN"
@@ -15,6 +16,27 @@
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of Sleep on LAN is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start Sleep on LAN now" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="If you leave this unchecked, Sleep on LAN is installed but idle. It will start after reboot, or you can start it later from Windows Services or by running C:\Program Files\SleepOnLan\sol.exe start as administrator." />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\wix\License.rtf" />
+
+    <CustomAction
+      Id="StartSleepOnLanAfterInstall"
+      FileRef="SolExeFile"
+      ExeCommand="start"
+      Execute="immediate"
+      Return="ignore" />
+
+    <UI>
+      <Publish
+        Dialog="ExitDialog"
+        Control="Finish"
+        Event="DoAction"
+        Value="StartSleepOnLanAfterInstall"
+        Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="SleepOnLan" />
@@ -44,7 +66,6 @@
         <ServiceControl
           Id="SleepOnLanServiceControl"
           Name="SleepOnLan"
-          Start="install"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />

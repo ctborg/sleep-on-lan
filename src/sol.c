@@ -532,7 +532,6 @@ static void init_default_config(Config *cfg) {
     cfg->delay_before_commands.delay_ms = 500;
     add_listener(cfg, "UDP:7");
     add_listener(cfg, "UDP:9");
-    add_listener(cfg, "HTTP:8009");
 #ifdef _WIN32
     add_command(cfg, "sleep", "external", true, "rundll32.exe powrprof.dll,SetSuspendState 0,1,0");
 #elif defined(__APPLE__)
@@ -573,7 +572,6 @@ static void parse_string_array_listeners(Config *cfg, const char *json) {
     if (cfg->listener_count == 0) {
         add_listener(cfg, "UDP:7");
         add_listener(cfg, "UDP:9");
-        add_listener(cfg, "HTTP:8009");
     }
 }
 
@@ -1299,8 +1297,7 @@ static void print_default_config(FILE *out) {
             "{\n"
             "  \"Listeners\": [\n"
             "    \"UDP:7\",\n"
-            "    \"UDP:9\",\n"
-            "    \"HTTP:8009\"\n"
+            "    \"UDP:9\"\n"
             "  ],\n"
             "  \"LogLevel\": \"INFO\",\n"
             "  \"BroadcastIP\": \"192.168.255.255\",\n"

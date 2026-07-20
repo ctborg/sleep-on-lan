@@ -44,7 +44,8 @@ After building `sol.exe`, build the WiX MSI installer:
 
 ```bat
 wix extension add -acceptEula wix7 WixToolset.Firewall.wixext/7.0.0
-wix build -acceptEula wix7 installer\wix\Package.wxs -ext WixToolset.Firewall.wixext -d SourceDir=%CD% -o installer\wix\Output\SleepOnLanSetup.msi
+wix extension add -acceptEula wix7 WixToolset.UI.wixext/7.0.0
+wix build -acceptEula wix7 installer\wix\Package.wxs -arch x64 -ext WixToolset.Firewall.wixext -ext WixToolset.UI.wixext -d SourceDir=%CD% -o installer\wix\Output\SleepOnLanSetup.msi
 ```
 
 The installer:
@@ -52,10 +53,22 @@ The installer:
 - installs `sol.exe` under `C:\Program Files\SleepOnLan`
 - creates `C:\ProgramData\SleepOnLan`
 - installs or updates the Windows Service
-- opens inbound UDP ports 7 and 9 in Windows Firewall through `sol.exe install`
-- starts the service
+- opens inbound UDP ports 7 and 9 in Windows Firewall
+- optionally starts the service from the final installer screen
 
 The MSI installer also removes the legacy Inno Setup uninstall registration so upgrades from the old `.exe` installer do not leave a duplicate "Sleep on LAN version 0.1.0" entry in Windows Installed apps.
+
+If you leave "Start Sleep on LAN now" unchecked on the final installer screen, the service remains installed with automatic startup and will run after the next reboot. You can also start it later from the Windows Services app, or from an elevated terminal:
+
+```bat
+"C:\Program Files\SleepOnLan\sol.exe" start
+```
+
+The HTTP API is disabled by default. To enable it, add `HTTP:8009` or another `HTTP:<port>` entry to `Listeners` in:
+
+```text
+C:\ProgramData\SleepOnLan\sol.json
+```
 
 Uninstall from Windows Settings or the Start Menu "Uninstall Sleep on LAN" entry. On uninstall, it stops and removes the service and deletes the firewall rules.
 

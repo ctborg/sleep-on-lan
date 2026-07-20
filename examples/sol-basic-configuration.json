@@ -1,8 +1,7 @@
 {
   "Listeners": [
     "UDP:7",
-    "UDP:9",
-    "HTTP:8009"
+    "UDP:9"
   ],
   "LogLevel": "INFO",
   "BroadcastIP": "192.168.255.255",

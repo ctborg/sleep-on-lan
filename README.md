@@ -2,7 +2,7 @@
 
 A dependency-free C implementation inspired by [SR-G/sleep-on-lan](https://github.com/SR-G/sleep-on-lan).
 
-It listens for Wake-on-LAN style UDP magic packets. If the MAC address encoded in the packet is the reverse of one of the local machine's MAC addresses, it runs the configured default command. It can also expose a tiny HTTP API for triggering commands and sending normal Wake-on-LAN packets.
+It listens for Wake-on-LAN style UDP magic packets. If the MAC address encoded in the packet is the reverse of one of the local machine's MAC addresses, it runs the configured default command. It can also expose an opt-in tiny HTTP API for triggering commands and sending normal Wake-on-LAN packets.
 
 ## Windows Users
 You can [download the MSI installer here](https://github.com/ctborg/sleep-on-lan/releases/latest/download/SleepOnLanSetup.msi)
@@ -82,6 +82,8 @@ Supported fields mirror the original project where practical:
 - `Commands`: external commands exposed through `/<operation>`
 
 ## HTTP API
+
+The HTTP API is off by default. Add `HTTP:8009` or another `HTTP:<port>` entry to `Listeners` in your config to enable it.
 
 - `GET /`
 - `GET /sleep`
