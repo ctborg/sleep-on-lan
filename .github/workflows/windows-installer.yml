@@ -35,8 +35,8 @@ jobs:
       - name: Install WiX Toolset
         shell: powershell
         run: |
-          dotnet tool install --global wix
-          wix extension add WixToolset.Firewall.wixext
+          dotnet tool install --global wix --version 7.0.0
+          wix extension add -acceptEula wix7 WixToolset.Firewall.wixext/7.0.0
 
       - name: Build installer
         shell: cmd
@@ -46,7 +46,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force installer\wix\Output | Out-Null
-          wix build installer\wix\Package.wxs `
+          wix build -acceptEula wix7 installer\wix\Package.wxs `
             -ext WixToolset.Firewall.wixext `
             -d SourceDir=${{ github.workspace }} `
             -o installer\wix\Output\SleepOnLanSetup.msi
