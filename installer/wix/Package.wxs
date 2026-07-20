@@ -1,0 +1,99 @@
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:firewall="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Package
+    Name="Sleep on LAN"
+    Manufacturer="Sleep on LAN"
+    Version="1.0.2"
+    UpgradeCode="7F23D7E2-9E59-4C8D-B76B-7523A6321F0C"
+    Scope="perMachine">
+
+    <SummaryInformation
+      Description="Sleep on LAN installer"
+      Manufacturer="Sleep on LAN" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Sleep on LAN is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SleepOnLan" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="PROGRAMDATADIR" Name="SleepOnLan" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Sleep on LAN" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="SolExe" Guid="D7DC5624-42E2-4A9D-8747-04E08C5B2271">
+        <File Id="SolExeFile" Source="$(var.SourceDir)\sol.exe" KeyPath="yes" />
+
+        <ServiceInstall
+          Id="SleepOnLanService"
+          Name="SleepOnLan"
+          DisplayName="Sleep on LAN"
+          Description="Listens for inverse Wake-on-LAN packets and puts this computer to sleep."
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal" />
+
+        <ServiceControl
+          Id="SleepOnLanServiceControl"
+          Name="SleepOnLan"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+      </Component>
+
+      <Component Id="ProgramDataDirectory" Directory="PROGRAMDATADIR" Guid="EB3D6C62-E947-47E7-B43D-83619345F1B6">
+        <CreateFolder />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\SleepOnLan"
+          Name="ProgramDataDirectory"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+
+      <Component Id="FirewallUdp7" Guid="9F6D9734-CE2A-4578-A069-8111022C9D3E">
+        <firewall:FirewallException
+          Id="SleepOnLanUdp7"
+          Name="Sleep on LAN UDP 7"
+          Description="Allows Sleep on LAN inverse Wake-on-LAN packets on UDP port 7."
+          Protocol="udp"
+          Port="7"
+          Profile="all" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\SleepOnLan"
+          Name="FirewallUdp7"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+
+      <Component Id="FirewallUdp9" Guid="47D35E9E-B5AC-4928-B8B8-6920E14098C0">
+        <firewall:FirewallException
+          Id="SleepOnLanUdp9"
+          Name="Sleep on LAN UDP 9"
+          Description="Allows Sleep on LAN inverse Wake-on-LAN packets on UDP port 9."
+          Protocol="udp"
+          Port="9"
+          Profile="all" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\SleepOnLan"
+          Name="FirewallUdp9"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Package>
+</Wix>

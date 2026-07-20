@@ -32,14 +32,34 @@ jobs:
         shell: powershell
         run: choco install innosetup --yes --no-progress
 
+      - name: Install WiX Toolset
+        shell: powershell
+        run: |
+          dotnet tool install --global wix
+          wix extension add WixToolset.Firewall.wixext
+
       - name: Build installer
         shell: cmd
         run: '"%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" installer\windows\SleepOnLan.iss'
+
+      - name: Build MSI installer
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force installer\wix\Output | Out-Null
+          wix build installer\wix\Package.wxs `
+            -ext WixToolset.Firewall.wixext `
+            -d SourceDir=${{ github.workspace }} `
+            -o installer\wix\Output\SleepOnLanSetup.msi
 
       - name: Generate Artifact Attestation
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: installer/windows/Output/SleepOnLanSetup.exe
+
+      - name: Generate MSI Artifact Attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: installer/wix/Output/SleepOnLanSetup.msi
 
       - name: Verify Artifact Attestation
         shell: powershell
@@ -47,10 +67,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh attestation verify installer/windows/Output/SleepOnLanSetup.exe --repo $env:GITHUB_REPOSITORY
+          gh attestation verify installer/wix/Output/SleepOnLanSetup.msi --repo $env:GITHUB_REPOSITORY
 
-      - name: Upload installer
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: SleepOnLanSetup
-          path: installer/windows/Output/SleepOnLanSetup.exe
+          name: SleepOnLanInstallers
+          path: |
+            installer/windows/Output/SleepOnLanSetup.exe
+            installer/wix/Output/SleepOnLanSetup.msi
           if-no-files-found: error

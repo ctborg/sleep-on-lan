@@ -7,4 +7,5 @@ sol.json
 
 plans/
 installer/windows/Output/
+installer/wix/Output/
 .DS_Store
