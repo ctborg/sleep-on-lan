@@ -12,7 +12,7 @@ You can [download the app on the App Store](https://apps.apple.com/app/computer-
 
 ## Linux Users
 You can follow the build instructions here:
-# Build
+### Build
 
 ```sh
 make
