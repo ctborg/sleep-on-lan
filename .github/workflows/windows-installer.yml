@@ -10,7 +10,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: write
   id-token: write
   attestations: write
@@ -49,59 +48,31 @@ jobs:
             -d SourceDir=${{ github.workspace }} `
             -o installer\wix\Output\SleepOnLanSetup.msi
 
-      - name: Upload unsigned MSI for SignPath
-        id: upload-unsigned-msi
-        uses: actions/upload-artifact@v4
-        with:
-          name: SleepOnLanSetup-unsigned-msi
-          path: installer/wix/Output/SleepOnLanSetup.msi
-          if-no-files-found: error
-
-      - name: Check SignPath configuration
-        if: github.event_name != 'pull_request'
-        shell: powershell
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-        run: |
-          $missing = @()
-          foreach ($name in 'SIGNPATH_API_TOKEN', 'SIGNPATH_ORGANIZATION_ID', 'SIGNPATH_PROJECT_SLUG', 'SIGNPATH_SIGNING_POLICY_SLUG', 'SIGNPATH_ARTIFACT_CONFIGURATION_SLUG') {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              $missing += $name
-            }
-          }
-          if ($missing.Count -gt 0) {
-            throw "Missing SignPath GitHub configuration: $($missing -join ', ')"
-          }
-
-      - name: Submit MSI signing request
-        if: github.event_name != 'pull_request'
-        timeout-minutes: 15
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          connector-url: https://githubactions.connectors.signpath.io
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-msi.outputs.artifact-id }}
-          github-token: ${{ github.token }}
-          wait-for-completion: true
-          output-artifact-directory: installer/wix/Signed
-
-      - name: Use signed MSI
-        if: github.event_name != 'pull_request'
+      - name: Self-sign MSI installer
         shell: powershell
         run: |
-          $signedMsi = Get-ChildItem -Path installer\wix\Signed -Filter SleepOnLanSetup.msi -Recurse | Select-Object -First 1
-          if (-not $signedMsi) {
-            throw "SignPath completed, but SleepOnLanSetup.msi was not found in installer\wix\Signed"
+          $certificate = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject "CN=Sleep on LAN Development Build" `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -KeyUsage DigitalSignature `
+            -KeyExportPolicy Exportable `
+            -NotAfter (Get-Date).AddYears(1)
+
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $signtool) {
+            throw "signtool.exe was not found in the Windows SDK"
           }
-          Copy-Item -Path $signedMsi.FullName -Destination installer\wix\Output\SleepOnLanSetup.msi -Force
+
+          & $signtool.FullName sign /fd SHA256 /sha1 $certificate.Thumbprint installer\wix\Output\SleepOnLanSetup.msi
+          if ($LASTEXITCODE -ne 0) {
+            throw "signtool failed with exit code $LASTEXITCODE"
+          }
+
           Get-AuthenticodeSignature installer\wix\Output\SleepOnLanSetup.msi | Format-List
 
       - name: Generate MSI Artifact Attestation
@@ -116,19 +87,10 @@ jobs:
         run: |
           gh attestation verify installer/wix/Output/SleepOnLanSetup.msi --repo $env:GITHUB_REPOSITORY
 
-      - name: Upload signed MSI artifact
-        if: github.event_name != 'pull_request'
+      - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: SleepOnLanSetup-msi
-          path: installer/wix/Output/SleepOnLanSetup.msi
-          if-no-files-found: error
-
-      - name: Upload unsigned MSI artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: SleepOnLanSetup-msi-unsigned
           path: installer/wix/Output/SleepOnLanSetup.msi
           if-no-files-found: error
 
