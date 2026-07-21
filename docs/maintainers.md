@@ -17,3 +17,20 @@ The `-arch x64` flag is intentional. It keeps the MSI and install directory alig
 This is intentional for the official `ctborg/sleep-on-lan` build workflow. Forks and downstream distributors should make their own decision about WiX v7 EULA acceptance and maintenance-fee obligations.
 
 Reference: https://docs.firegiant.com/wix/osmf/
+
+## SignPath MSI Signing
+
+Release builds submit the unsigned MSI to SignPath and replace it with the signed MSI before provenance attestation, artifact upload, and GitHub Release attachment.
+
+Configure these GitHub repository values before cutting a release:
+
+- Secret `SIGNPATH_API_TOKEN`: SignPath API token with permission to submit signing requests for the project and policy
+- Variable `SIGNPATH_ORGANIZATION_ID`: SignPath organization ID
+- Variable `SIGNPATH_PROJECT_SLUG`: SignPath project slug
+- Variable `SIGNPATH_SIGNING_POLICY_SLUG`: SignPath signing policy slug
+
+Pull request builds do not submit to SignPath, so external PRs can still validate that the MSI builds without requiring signing credentials.
+
+The SignPath artifact configuration must accept the GitHub Actions artifact uploaded by `actions/upload-artifact`. This workflow uploads `installer/wix/Output/SleepOnLanSetup.msi` as `SleepOnLanSetup-unsigned-msi`; if the artifact configuration treats uploads as ZIP archives, it should sign the MSI inside that archive and return a signed `SleepOnLanSetup.msi`.
+
+Reference: https://docs.signpath.io/trusted-build-systems/github
